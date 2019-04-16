@@ -110,7 +110,7 @@ main(int    argc,
 
         if (done) { break; }
 
-        board[i * len + j] = 'm';
+        board[i * len + j] = '.';
 
         switch (dir) {
         case 0:
