@@ -15,11 +15,13 @@ static size_t   quiet = 0;
 static uint16_t rand_buf[RAND_BUF_LEN];
 static int      urand_fd = 0;
 static size_t   pos_ = 0;
+static size_t   start_i = 0;
+static size_t   start_j = 0;
 
 typedef enum {
-    RW_GOOD = 0,
-    RW_COLL = 1,
-    RW_DONE = 2
+    RW_GOOD = 0, /* next random walk step good */
+    RW_COLL = 1, /* next random walk step collided, need to retry */
+    RW_DONE = 2  /* random walk is done, no step possible */
 } avoid_t;
 
 static void    print_usage_and_die(void) __attribute__((noreturn));
@@ -30,6 +32,8 @@ static void    print_board(const char * board, const size_t len);
 static avoid_t get_avoid(const char * board, const size_t len,
                          const size_t i, const size_t j,
                          const size_t dir);
+static avoid_t step(const char * board, const size_t len,
+                    size_t * i_ptr, size_t * j_ptr);
 
 
 
@@ -42,10 +46,18 @@ main(int    argc,
     int    opt = 0;
     size_t len = 0;
 
-    while ((opt = getopt(argc, argv, "n:s:aq")) != -1) {
+    while ((opt = getopt(argc, argv, "i:j:n:s:aq")) != -1) {
         switch (opt) {
         case 'a':
             avoid = 1;
+            break;
+
+        case 'i':
+            start_i = get_len(optarg);
+            break;
+
+        case 'j':
+            start_j = get_len(optarg);
             break;
 
         case 's':
@@ -66,8 +78,8 @@ main(int    argc,
         }
     }
 
-    if (len >= 100) {
-        fprintf(stderr, "error: number is too large! Must be < 100\n");
+    if (len >= 1000) {
+        fprintf(stderr, "error: number is too large! Must be < 1000\n");
         print_usage_and_die();
     }
 
@@ -85,55 +97,50 @@ main(int    argc,
     size_t i = safer_rand(0, len - 1);
     size_t j = safer_rand(0, len - 1);
 
+    if (start_i) {
+        if (start_i > len) {
+            fprintf(stderr, "error: -i %zu > %zu\n", start_i, len);
+            print_usage_and_die();
+        }
+
+        --start_i;
+        i = start_i;
+    }
+
+    if (start_j) {
+        if (start_j > len) {
+            fprintf(stderr, "error: -j %zu > %zu\n", start_j, len);
+            print_usage_and_die();
+        }
+
+        --start_j;
+        j = start_j;
+    }
+
+    board[i * len + j] = 'm';
+
+    if (step(board, len, &i, &j) != RW_GOOD) {
+        // This should never happen.
+        fprintf(stderr, "error: step failed on first step\n");
+        return 1;
+    }
+
     board[i * len + j] = 'M';
 
     if (!quiet) {
         print_board(board, len);
     }
 
-    size_t done = 0;
+    size_t i_old;
+    size_t j_old;
 
     for (;;) {
-        size_t dir = safer_rand(0, 3);
+        i_old = i;
+        j_old = j;
 
-        if (avoid) {
-            switch (get_avoid(board, len, i, j, dir)) {
-            case RW_GOOD:
-                break;
-            case RW_COLL:
-                continue;
-            case RW_DONE:
-                done = 1;
-                break;
-            }
-        }
+        if (step(board, len, &i, &j) != RW_GOOD) { break; }
 
-        if (done) { break; }
-
-        board[i * len + j] = '.';
-
-        switch (dir) {
-        case 0:
-            if (i) { --i; }
-            else { continue; }
-            break;
-        case 1:
-            if (j) { --j; }
-            else { continue; }
-            break;
-        case 2:
-            if (i < len - 1) { ++i; }
-            else { continue; }
-            break;
-        case 3:
-            if (j < len - 1) { ++j; }
-            else { continue; }
-            break;
-        default:
-            fprintf(stderr, "error: don't know about dir = %zu\n", dir);
-
-        }
-
+        board[i_old * len + j_old] = '.';
         board[i * len + j] = 'M';
 
         if (sleep_interval) {
@@ -154,15 +161,15 @@ static void
 print_usage_and_die(void)
 {
     fprintf(stderr, "usage:\n");
-    fprintf(stderr, "%s -n <len> -b <born> -l <low> -h <high> -dq", prog_name);
+    fprintf(stderr, "%s -n <len> [-s <microseconds>] [-i <row>] [-j <col>] -aq", prog_name);
     fprintf(stderr, "\noptions:\n");
-    fprintf(stderr, "  n: the length of square board. 2-99\n");
-    fprintf(stderr, "  b: the born number in BnSij rule\n");
-    fprintf(stderr, "  l: the low survival number in BnSij rule\n");
+    fprintf(stderr, "  n: the length of square board. 2-99. Required.\n");
+    fprintf(stderr, "  i: starting row\n");
+    fprintf(stderr, "  j: starting column\n");
     fprintf(stderr, "  h: the high survival number in BnSij rule\n");
-    fprintf(stderr, "  s: sleep interval\n");
+    fprintf(stderr, "  s: sleep interval in microseconds\n");
+    fprintf(stderr, "  a: self-avoiding walk\n");
     fprintf(stderr, "  q: quiet mode. Enable to reduce print output\n");
-    fprintf(stderr, "  d: debug mode (prints function entry)\n");
 
     exit(EXIT_FAILURE);
 }
@@ -336,4 +343,56 @@ get_avoid(const char * board,
     }
 
     return RW_DONE;
+}
+
+
+
+static avoid_t
+step(const char * board,
+     const size_t len,
+     size_t *     i_ptr,
+     size_t *     j_ptr)
+{
+    size_t dir = 0;
+    size_t i = *i_ptr;
+    size_t j = *j_ptr;
+
+    for (;;) {
+        dir = safer_rand(0, 3);
+
+        switch (get_avoid(board, len, i, j, dir)) {
+        case RW_GOOD:
+            break;
+        case RW_COLL:
+            continue;
+        case RW_DONE:
+            return RW_DONE;
+        }
+
+        break;
+    }
+
+    // get_avoid already checked for wall collisions, so this is safe.
+    switch (dir) {
+    case 0:
+        --i;
+        break;
+    case 1:
+        --j;
+        break;
+    case 2:
+        ++i;
+        break;
+    case 3:
+        ++j;
+        break;
+    default:
+        fprintf(stderr, "error: don't know about dir = %zu\n", dir);
+        exit(1);
+    }
+
+    *i_ptr = i;
+    *j_ptr = j;
+
+    return RW_GOOD;
 }
