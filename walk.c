@@ -15,6 +15,7 @@ static size_t   quiet = 0;
 static uint16_t rand_buf[RAND_BUF_LEN];
 static int      urand_fd = 0;
 static size_t   pos_ = 0;
+static size_t   run_len = 0;
 static size_t   start_i = 0;
 static size_t   start_j = 0;
 
@@ -32,8 +33,8 @@ static void    print_board(const char * board, const size_t len);
 static avoid_t get_avoid(const char * board, const size_t len,
                          const size_t i, const size_t j,
                          const size_t dir);
-static avoid_t step(const char * board, const size_t len,
-                    size_t * i_ptr, size_t * j_ptr);
+static avoid_t step(const char * board, const size_t len, size_t * i_ptr,
+                    size_t * j_ptr, size_t * dir, size_t * r_l);
 
 
 
@@ -46,7 +47,7 @@ main(int    argc,
     int    opt = 0;
     size_t len = 0;
 
-    while ((opt = getopt(argc, argv, "i:j:n:s:aq")) != -1) {
+    while ((opt = getopt(argc, argv, "i:j:n:r:s:aq")) != -1) {
         switch (opt) {
         case 'a':
             avoid = 1;
@@ -58,6 +59,10 @@ main(int    argc,
 
         case 'j':
             start_j = get_len(optarg);
+            break;
+
+        case 'r':
+            run_len = get_len(optarg);
             break;
 
         case 's':
@@ -117,9 +122,14 @@ main(int    argc,
         j = start_j;
     }
 
+    size_t dir = 0;
+    size_t i_old;
+    size_t j_old;
+    size_t r_l = run_len;
+
     board[i * len + j] = 'm';
 
-    if (step(board, len, &i, &j) != RW_GOOD) {
+    if (step(board, len, &i, &j, &dir, &r_l) != RW_GOOD) {
         // This should never happen.
         fprintf(stderr, "error: step failed on first step\n");
         return 1;
@@ -131,14 +141,11 @@ main(int    argc,
         print_board(board, len);
     }
 
-    size_t i_old;
-    size_t j_old;
-
     for (;;) {
         i_old = i;
         j_old = j;
 
-        if (step(board, len, &i, &j) != RW_GOOD) { break; }
+        if (step(board, len, &i, &j, &dir, &r_l) != RW_GOOD) { break; }
 
         board[i_old * len + j_old] = '.';
         board[i * len + j] = 'M';
@@ -167,6 +174,7 @@ print_usage_and_die(void)
     fprintf(stderr, "  i: starting row\n");
     fprintf(stderr, "  j: starting column\n");
     fprintf(stderr, "  h: the high survival number in BnSij rule\n");
+    fprintf(stderr, "  r: run length for a given direction\n");
     fprintf(stderr, "  s: sleep interval in microseconds\n");
     fprintf(stderr, "  a: self-avoiding walk\n");
     fprintf(stderr, "  q: quiet mode. Enable to reduce print output\n");
@@ -351,19 +359,29 @@ static avoid_t
 step(const char * board,
      const size_t len,
      size_t *     i_ptr,
-     size_t *     j_ptr)
+     size_t *     j_ptr,
+     size_t *     dir_ptr,
+     size_t *     r_l_ptr)
 {
-    size_t dir = 0;
     size_t i = *i_ptr;
     size_t j = *j_ptr;
+    size_t dir = *dir_ptr;
+    size_t r_l = *r_l_ptr;
 
     for (;;) {
-        dir = safer_rand(0, 3);
+        if (r_l) {
+            --r_l;
+        }
+        else {
+            r_l = run_len;
+            dir = safer_rand(0, 3);
+        }
 
         switch (get_avoid(board, len, i, j, dir)) {
         case RW_GOOD:
             break;
         case RW_COLL:
+            r_l = 0;
             continue;
         case RW_DONE:
             return RW_DONE;
@@ -393,6 +411,8 @@ step(const char * board,
 
     *i_ptr = i;
     *j_ptr = j;
+    *dir_ptr = dir;
+    *r_l_ptr = r_l;
 
     return RW_GOOD;
 }
