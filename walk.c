@@ -10,14 +10,10 @@
 
 static char     prog_name[] = "run_walk";
 static size_t   avoid = 0;
-static size_t   sleep_interval = 0;
-static size_t   quiet = 0;
 static uint16_t rand_buf[RAND_BUF_LEN];
 static int      urand_fd = 0;
 static size_t   pos_ = 0;
 static size_t   run_len = 0;
-static size_t   start_i = 0;
-static size_t   start_j = 0;
 
 typedef enum {
     RW_GOOD = 0, /* next random walk step good */
@@ -44,8 +40,12 @@ main(int    argc,
 {
     if (argc < 2) { print_usage_and_die(); }
 
-    int    opt = 0;
-    size_t len = 0;
+    int     opt = 0;
+    size_t  len = 0;
+    size_t  sleep_interval = 0;
+    size_t  start_i = 0;
+    size_t  start_j = 0;
+    size_t  quiet = 0;
 
     while ((opt = getopt(argc, argv, "i:j:n:r:s:aq")) != -1) {
         switch (opt) {
@@ -168,7 +168,8 @@ static void
 print_usage_and_die(void)
 {
     fprintf(stderr, "usage:\n");
-    fprintf(stderr, "%s -n <len> [-s <microseconds>] [-i <row>] [-j <col>] -aq", prog_name);
+    fprintf(stderr, "%s -n <len> [-aq] [-s <microseconds>] [-i <row>] [-j <col>]\n",
+            prog_name);
     fprintf(stderr, "\noptions:\n");
     fprintf(stderr, "  n: the length of square board. 2-99. Required.\n");
     fprintf(stderr, "  i: starting row\n");
